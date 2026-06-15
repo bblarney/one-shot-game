@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One Shot</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Supabase credentials — replace before deploying -->
+  <script>
+    window.SUPABASE_URL      = 'YOUR_SUPABASE_URL';
+    window.SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  </script>
+</head>
+<body>
+
+  <!-- ── Game screen ─────────────────────────────────────────────────────── -->
+  <div id="screen-game" class="screen active">
+    <div class="hud">
+      <div class="stat">
+        <div class="stat-val" id="score">0</div>
+        <div class="stat-label">Score</div>
+      </div>
+      <div id="hint">Outer targets score more — aim far first!</div>
+      <div class="stat">
+        <div class="stat-val" id="left">—</div>
+        <div class="stat-label">Left</div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:#fbbf24"></div> 1 pt</div>
+      <div class="leg"><div class="leg-dot" style="background:#f97316"></div> 2 pts</div>
+      <div class="leg"><div class="leg-dot" style="background:#ef4444"></div> 3 pts</div>
+    </div>
+
+    <div class="shot-pips" id="pips"></div>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- ── Submit screen ───────────────────────────────────────────────────── -->
+  <div id="screen-submit" class="screen">
+    <div class="card">
+      <div>
+        <div class="big-score" id="final-score">0 <span id="final-max">/ 0 pts</span></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px" id="day-label">One Shot #1</div>
+      </div>
+      <div>
+        <input type="text" id="name-input" placeholder="Enter your name" maxlength="24" autocomplete="off">
+      </div>
+      <button class="btn" id="submit-btn">Submit to leaderboard</button>
+      <button class="btn ghost" id="skip-btn">Skip — just see the scores</button>
+    </div>
+  </div>
+
+  <!-- ── Leaderboard screen ──────────────────────────────────────────────── -->
+  <div id="screen-leaderboard" class="screen">
+    <div id="played-banner" class="played-banner" style="display:none">
+      You've already played today — come back tomorrow!
+    </div>
+    <div class="card">
+      <div class="lb-header">
+        <div class="lb-title" id="lb-title">Today's Leaderboard</div>
+        <div class="lb-sub" id="lb-sub"></div>
+      </div>
+      <div id="lb-body" style="overflow-y:auto;max-height:340px">
+        <div class="spinner" style="margin:24px auto"></div>
+      </div>
+      <div class="share-text" id="share-text" style="display:none;margin:0 16px"></div>
+      <div class="tomorrow" id="lb-tomorrow"></div>
+      <div class="lb-footer">
+        <button class="btn ghost" id="share-btn" style="display:none">Copy result</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { Game, dayNumber } from './game.js';
+    import { submitScore, fetchLeaderboard } from './db.js';
+
+    // ── LocalStorage keys ───────────────────────────────────────────────────
+    const today       = new Date().toISOString().split('T')[0];
+    const KEY_PLAYED  = `os_played_${today}`;
+    const KEY_NAME    = 'os_name';
+
+    // ── Elements ────────────────────────────────────────────────────────────
+    const screens   = { game: document.getElementById('screen-game'), submit: document.getElementById('screen-submit'), lb: document.getElementById('screen-leaderboard') };
+    const scoreEl   = document.getElementById('score');
+    const leftEl    = document.getElementById('left');
+    const hintEl    = document.getElementById('hint');
+    const pipsEl    = document.getElementById('pips');
+    const canvas    = document.getElementById('canvas');
+
+    function showScreen(name) {
+      Object.values(screens).forEach(s => s.classList.remove('active'));
+      screens[name].classList.add('active');
+    }
+
+    // ── Pips ────────────────────────────────────────────────────────────────
+    function buildPips(total) {
+      pipsEl.innerHTML = '';
+      for (let i = 0; i < total; i++) {
+        const p = document.createElement('div');
+        p.className = 'pip'; p.id = 'pip' + i;
+        pipsEl.appendChild(p);
+      }
+    }
+    function updatePips(shotNum, total) {
+      for (let i = 0; i < total; i++) {
+        const p = document.getElementById('pip' + i);
+        if (!p) continue;
+        p.className = 'pip' + (i < shotNum ? ' used' : i === shotNum ? ' current' : '');
+      }
+    }
+
+    // ── Game callbacks ───────────────────────────────────────────────────────
+    let game;
+
+    function onScoreChange(score, remaining) {
+      scoreEl.textContent = score;
+      leftEl.textContent  = remaining;
+    }
+
+    function onShotEnd(nextShotNum, remaining) {
+      updatePips(nextShotNum, 3);
+      hintEl.textContent = `Shot done — ${remaining} targets left`;
+    }
+
+    function onGameEnd(score, maxScore) {
+      document.getElementById('final-score').childNodes[0].textContent = score + ' ';
+      document.getElementById('final-max').textContent  = `/ ${maxScore} pts`;
+      document.getElementById('day-label').textContent  = `One Shot #${dayNumber()}`;
+      document.getElementById('name-input').value       = localStorage.getItem(KEY_NAME) || '';
+      showScreen('submit');
+    }
+
+    // ── Submit ───────────────────────────────────────────────────────────────
+    document.getElementById('submit-btn').addEventListener('click', async () => {
+      const nameEl = document.getElementById('name-input');
+      const name   = nameEl.value.trim();
+      if (!name) { nameEl.focus(); return; }
+
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Submitting…';
+
+      try {
+        await submitScore({ name, score: game.totalScore, maxScore: game.maxScore });
+        localStorage.setItem(KEY_NAME,   name);
+        localStorage.setItem(KEY_PLAYED, JSON.stringify({ score: game.totalScore, maxScore: game.maxScore, name }));
+        showLeaderboard(name);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Submit to leaderboard';
+        alert('Something went wrong — try again.');
+        console.error(err);
+      }
+    });
+
+    document.getElementById('skip-btn').addEventListener('click', () => {
+      showLeaderboard(null);
+    });
+
+    // ── Leaderboard ──────────────────────────────────────────────────────────
+    async function showLeaderboard(playerName) {
+      showScreen('lb');
+      document.getElementById('lb-title').textContent = `One Shot #${dayNumber()}`;
+
+      const lbBody = document.getElementById('lb-body');
+      lbBody.innerHTML = '<div class="spinner" style="margin:24px auto"></div>';
+
+      let rows;
+      try {
+        rows = await fetchLeaderboard();
+      } catch (err) {
+        lbBody.innerHTML = '<p style="padding:20px;color:var(--muted);text-align:center">Could not load scores.</p>';
+        return;
+      }
+
+      if (!rows || rows.length === 0) {
+        lbBody.innerHTML = '<p style="padding:20px;color:var(--muted);text-align:center">No scores yet today — you might be first!</p>';
+        return;
+      }
+
+      const playerRank = playerName ? rows.findIndex(r => r.name === playerName) + 1 : null;
+
+      document.getElementById('lb-sub').textContent = `${rows.length} player${rows.length === 1 ? '' : 's'} today`;
+
+      const medals = ['🥇', '🥈', '🥉'];
+      const table  = document.createElement('table');
+      table.className = 'lb-table';
+      table.innerHTML = `<thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead>`;
+      const tbody = document.createElement('tbody');
+
+      rows.forEach((row, i) => {
+        const tr      = document.createElement('tr');
+        const isYou   = playerName && row.name === playerName;
+        if (isYou) tr.className = 'you';
+        const rankStr = i < 3 ? `<span class="rank-medal">${medals[i]}</span>` : `${i + 1}`;
+        tr.innerHTML  = `<td>${rankStr}</td><td>${escHtml(row.name)}${isYou ? ' (you)' : ''}</td><td>${row.score} / ${row.max_score}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      lbBody.innerHTML = '';
+      lbBody.appendChild(table);
+
+      // Share block
+      if (playerName && playerRank) {
+        const shareStr = buildShareText(game?.totalScore ?? 0, game?.maxScore ?? 0, playerRank, rows.length);
+        const shareEl  = document.getElementById('share-text');
+        shareEl.textContent = shareStr;
+        shareEl.style.display = 'block';
+        const shareBtn = document.getElementById('share-btn');
+        shareBtn.style.display = 'inline-flex';
+        shareBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(shareStr).then(() => {
+            shareBtn.textContent = 'Copied!';
+            setTimeout(() => { shareBtn.textContent = 'Copy result'; }, 2000);
+          });
+        });
+      }
+
+      // Tomorrow countdown
+      const now        = new Date();
+      const tomorrow   = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0);
+      const hrs        = Math.floor((tomorrow - now) / 3600000);
+      const mins       = Math.floor(((tomorrow - now) % 3600000) / 60000);
+      document.getElementById('lb-tomorrow').textContent = `Next shot in ${hrs}h ${mins}m`;
+    }
+
+    function buildShareText(score, maxScore, rank, total) {
+      const pct = maxScore > 0 ? Math.round(score / maxScore * 100) : 0;
+      return `One Shot #${dayNumber()} 🎱\nScore: ${score}/${maxScore} pts (${pct}%)\nRank: #${rank} of ${total}\nplay.oneshot.gg`;
+    }
+
+    function escHtml(str) {
+      return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+    const played = localStorage.getItem(KEY_PLAYED);
+    if (played) {
+      // Already played today — go straight to leaderboard
+      document.getElementById('played-banner').style.display = 'block';
+      const { name } = JSON.parse(played);
+      showLeaderboard(name);
+    } else {
+      // Fresh game
+      buildPips(3);
+      updatePips(0, 3);
+      game = new Game(canvas, { onScoreChange, onShotEnd, onGameEnd });
+      game.init();
+      leftEl.textContent = 22; // NUM_T
+    }
+  </script>
+</body>
+</html>
