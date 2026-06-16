@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>One Shot</title>
+  <title>Chain Reaction</title>
   <link rel="stylesheet" href="style.css">
 
   <!-- Supabase credentials — replace before deploying -->
@@ -17,14 +17,15 @@
   <!-- ── Game screen ─────────────────────────────────────────────────────── -->
   <div id="screen-game" class="screen active">
     <div class="hud">
+      <div class="spark-pips" id="spark-pips">
+        <div class="spark-pip" id="sp0"></div>
+        <div class="spark-pip" id="sp1"></div>
+        <div class="spark-pip" id="sp2"></div>
+      </div>
+      <div id="hint">Click the board to place sparks</div>
       <div class="stat">
         <div class="stat-val" id="score">0</div>
         <div class="stat-label">Score</div>
-      </div>
-      <div id="hint">Outer targets score more — aim far first!</div>
-      <div class="stat">
-        <div class="stat-val" id="left">—</div>
-        <div class="stat-label">Left</div>
       </div>
     </div>
 
@@ -34,8 +35,12 @@
       <div class="leg"><div class="leg-dot" style="background:#ef4444"></div> 3 pts</div>
     </div>
 
-    <div class="shot-pips" id="pips"></div>
     <canvas id="canvas"></canvas>
+
+    <div class="game-actions">
+      <button class="btn ghost" id="reset-btn">↺ Reset</button>
+      <button class="btn" id="fire-btn" disabled>Fire!</button>
+    </div>
   </div>
 
   <!-- ── Submit screen ───────────────────────────────────────────────────── -->
@@ -43,7 +48,7 @@
     <div class="card">
       <div>
         <div class="big-score" id="final-score">0 <span id="final-max">/ 0 pts</span></div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px" id="day-label">One Shot #1</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px" id="day-label">Chain Reaction #1</div>
       </div>
       <div>
         <input type="text" id="name-input" placeholder="Enter your name" maxlength="24" autocomplete="off">
@@ -78,63 +83,68 @@
     import { Game, dayNumber } from './game.js';
     import { submitScore, fetchLeaderboard } from './db.js';
 
-    // ── LocalStorage keys ───────────────────────────────────────────────────
-    const today       = new Date().toISOString().split('T')[0];
-    const KEY_PLAYED  = `os_played_${today}`;
-    const KEY_NAME    = 'os_name';
+    const today      = new Date().toISOString().split('T')[0];
+    const KEY_PLAYED = `cr_played_${today}`;
+    const KEY_NAME   = 'cr_name';
 
-    // ── Elements ────────────────────────────────────────────────────────────
-    const screens   = { game: document.getElementById('screen-game'), submit: document.getElementById('screen-submit'), lb: document.getElementById('screen-leaderboard') };
-    const scoreEl   = document.getElementById('score');
-    const leftEl    = document.getElementById('left');
-    const hintEl    = document.getElementById('hint');
-    const pipsEl    = document.getElementById('pips');
-    const canvas    = document.getElementById('canvas');
+    const screens  = { game: document.getElementById('screen-game'), submit: document.getElementById('screen-submit'), lb: document.getElementById('screen-leaderboard') };
+    const scoreEl  = document.getElementById('score');
+    const hintEl   = document.getElementById('hint');
+    const fireBtn  = document.getElementById('fire-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const canvas   = document.getElementById('canvas');
 
     function showScreen(name) {
       Object.values(screens).forEach(s => s.classList.remove('active'));
       screens[name].classList.add('active');
     }
 
-    // ── Pips ────────────────────────────────────────────────────────────────
-    function buildPips(total) {
-      pipsEl.innerHTML = '';
-      for (let i = 0; i < total; i++) {
-        const p = document.createElement('div');
-        p.className = 'pip'; p.id = 'pip' + i;
-        pipsEl.appendChild(p);
+    // ── Spark pips ────────────────────────────────────────────────────────────
+    function updateSparkPips(placed, max) {
+      for (let i = 0; i < max; i++) {
+        const pip = document.getElementById('sp' + i);
+        if (!pip) continue;
+        pip.className = 'spark-pip' + (i < placed ? ' placed' : '');
       }
-    }
-    function updatePips(shotNum, total) {
-      for (let i = 0; i < total; i++) {
-        const p = document.getElementById('pip' + i);
-        if (!p) continue;
-        p.className = 'pip' + (i < shotNum ? ' used' : i === shotNum ? ' current' : '');
-      }
+      fireBtn.disabled = placed < max;
+      if (placed === 0)        hintEl.textContent = 'Click the board to place sparks';
+      else if (placed < max)   hintEl.textContent = `${max - placed} spark${max - placed > 1 ? 's' : ''} left to place`;
+      else                     hintEl.textContent = 'All sparks placed — Fire when ready!';
     }
 
-    // ── Game callbacks ───────────────────────────────────────────────────────
+    // ── Game callbacks ────────────────────────────────────────────────────────
     let game;
 
-    function onScoreChange(score, remaining) {
+    function onScoreChange(score) {
       scoreEl.textContent = score;
-      leftEl.textContent  = remaining;
     }
 
-    function onShotEnd(nextShotNum, remaining) {
-      updatePips(nextShotNum, 3);
-      hintEl.textContent = `Shot done — ${remaining} targets left`;
+    function onSparksChanged(placed, max) {
+      updateSparkPips(placed, max);
     }
 
     function onGameEnd(score, maxScore) {
       document.getElementById('final-score').childNodes[0].textContent = score + ' ';
       document.getElementById('final-max').textContent  = `/ ${maxScore} pts`;
-      document.getElementById('day-label').textContent  = `One Shot #${dayNumber()}`;
+      document.getElementById('day-label').textContent  = `Chain Reaction #${dayNumber()}`;
       document.getElementById('name-input').value       = localStorage.getItem(KEY_NAME) || '';
       showScreen('submit');
     }
 
-    // ── Submit ───────────────────────────────────────────────────────────────
+    // ── Fire & Reset ──────────────────────────────────────────────────────────
+    fireBtn.addEventListener('click', () => {
+      if (!game.canFire()) return;
+      fireBtn.disabled  = true;
+      resetBtn.disabled = true;
+      hintEl.textContent = 'Chain reaction in progress…';
+      game.fire();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      game.resetSparks();
+    });
+
+    // ── Submit ────────────────────────────────────────────────────────────────
     document.getElementById('submit-btn').addEventListener('click', async () => {
       const nameEl = document.getElementById('name-input');
       const name   = nameEl.value.trim();
@@ -161,10 +171,10 @@
       showLeaderboard(null);
     });
 
-    // ── Leaderboard ──────────────────────────────────────────────────────────
+    // ── Leaderboard ───────────────────────────────────────────────────────────
     async function showLeaderboard(playerName) {
       showScreen('lb');
-      document.getElementById('lb-title').textContent = `One Shot #${dayNumber()}`;
+      document.getElementById('lb-title').textContent = `Chain Reaction #${dayNumber()}`;
 
       const lbBody = document.getElementById('lb-body');
       lbBody.innerHTML = '<div class="spinner" style="margin:24px auto"></div>';
@@ -183,7 +193,6 @@
       }
 
       const playerRank = playerName ? rows.findIndex(r => r.name === playerName) + 1 : null;
-
       document.getElementById('lb-sub').textContent = `${rows.length} player${rows.length === 1 ? '' : 's'} today`;
 
       const medals = ['🥇', '🥈', '🥉'];
@@ -205,7 +214,6 @@
       lbBody.innerHTML = '';
       lbBody.appendChild(table);
 
-      // Share block
       if (playerName && playerRank) {
         const shareStr = buildShareText(game?.totalScore ?? 0, game?.maxScore ?? 0, playerRank, rows.length);
         const shareEl  = document.getElementById('share-text');
@@ -221,37 +229,31 @@
         });
       }
 
-      // Tomorrow countdown
-      const now        = new Date();
-      const tomorrow   = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0);
-      const hrs        = Math.floor((tomorrow - now) / 3600000);
-      const mins       = Math.floor(((tomorrow - now) % 3600000) / 60000);
-      document.getElementById('lb-tomorrow').textContent = `Next shot in ${hrs}h ${mins}m`;
+      const now      = new Date();
+      const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(0, 0, 0, 0);
+      const hrs      = Math.floor((tomorrow - now) / 3600000);
+      const mins     = Math.floor(((tomorrow - now) % 3600000) / 60000);
+      document.getElementById('lb-tomorrow').textContent = `Next puzzle in ${hrs}h ${mins}m`;
     }
 
     function buildShareText(score, maxScore, rank, total) {
       const pct = maxScore > 0 ? Math.round(score / maxScore * 100) : 0;
-      return `One Shot #${dayNumber()} 🎱\nScore: ${score}/${maxScore} pts (${pct}%)\nRank: #${rank} of ${total}\nplay.oneshot.gg`;
+      return `Chain Reaction #${dayNumber()} ⚡\nScore: ${score}/${maxScore} pts (${pct}%)\nRank: #${rank} of ${total}`;
     }
 
     function escHtml(str) {
       return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
-    // ── Boot ─────────────────────────────────────────────────────────────────
+    // ── Boot ──────────────────────────────────────────────────────────────────
     const played = localStorage.getItem(KEY_PLAYED);
     if (played) {
-      // Already played today — go straight to leaderboard
       document.getElementById('played-banner').style.display = 'block';
       const { name } = JSON.parse(played);
       showLeaderboard(name);
     } else {
-      // Fresh game
-      buildPips(3);
-      updatePips(0, 3);
-      game = new Game(canvas, { onScoreChange, onShotEnd, onGameEnd });
+      game = new Game(canvas, { onScoreChange, onSparksChanged, onGameEnd });
       game.init();
-      leftEl.textContent = 22; // NUM_T
     }
   </script>
 </body>

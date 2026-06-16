@@ -8,6 +8,7 @@
   --muted: #64748b;
   --accent: #7c3aed;
   --accent-light: #ede9fe;
+  --spark: #fbbf24;
 }
 
 html, body {
@@ -19,7 +20,7 @@ html, body {
   line-height: 1.5;
 }
 
-/* ── Screens ─────────────────────────────────────────── */
+/* ── Screens ─────────────────────────────────────── */
 .screen {
   display: none;
   flex-direction: column;
@@ -31,7 +32,7 @@ html, body {
 }
 .screen.active { display: flex; }
 
-/* ── Game screen ─────────────────────────────────────── */
+/* ── Game screen ─────────────────────────────────── */
 #screen-game { justify-content: center; padding-top: 12px; }
 
 .hud {
@@ -41,6 +42,7 @@ html, body {
   width: 100%;
   max-width: 560px;
 }
+
 .stat { text-align: center; min-width: 64px; }
 .stat-val { font-size: 22px; font-weight: 800; }
 .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
@@ -65,17 +67,25 @@ html, body {
 .leg { display: flex; align-items: center; gap: 5px; }
 .leg-dot { width: 10px; height: 10px; border-radius: 50%; }
 
-.shot-pips { display: flex; gap: 6px; }
-.pip {
-  width: 32px; height: 8px;
+/* ── Spark pips ───────────────────────────────────── */
+.spark-pips { display: flex; gap: 6px; min-width: 64px; }
+
+.spark-pip {
+  width: 32px;
+  height: 8px;
   border-radius: 99px;
   background: var(--surface);
   border: 1.5px solid var(--border);
-  transition: background .3s;
+  transition: background .25s, border-color .25s, box-shadow .25s;
 }
-.pip.used    { background: var(--border); border-color: var(--border); }
-.pip.current { background: #f59e0b; border-color: #f59e0b; }
 
+.spark-pip.placed {
+  background: var(--spark);
+  border-color: var(--spark);
+  box-shadow: 0 0 6px rgba(251,191,36,.5);
+}
+
+/* ── Canvas ───────────────────────────────────────── */
 #canvas {
   border-radius: 10px;
   display: block;
@@ -84,7 +94,18 @@ html, body {
   max-width: 100%;
 }
 
-/* ── Submit screen ───────────────────────────────────── */
+/* ── Game actions (fire / reset) ─────────────────── */
+.game-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.game-actions .btn       { flex: 1; }
+.game-actions .btn.ghost { flex: 0 0 auto; min-width: 90px; }
+
+/* ── Submit screen ───────────────────────────────── */
 .card {
   background: var(--surface);
   border: 1.5px solid var(--border);
@@ -129,15 +150,24 @@ input[type="text"]:focus { border-color: var(--accent); }
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  transition: background .15s;
+  transition: background .15s, opacity .15s;
   width: 100%;
 }
-.btn:hover { background: #6d28d9; }
-.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:hover:not(:disabled) { background: #6d28d9; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
 .btn.ghost { background: transparent; color: var(--accent); }
-.btn.ghost:hover { background: rgba(124,58,237,.08); }
+.btn.ghost:hover:not(:disabled) { background: rgba(124,58,237,.08); }
 
-/* ── Leaderboard screen ──────────────────────────────── */
+/* Fire button — gold when ready */
+#fire-btn:not(:disabled) {
+  background: var(--spark);
+  border-color: var(--spark);
+  color: #1a1000;
+  box-shadow: 0 0 16px rgba(251,191,36,.3);
+}
+#fire-btn:not(:disabled):hover { background: #f59e0b; }
+
+/* ── Leaderboard screen ──────────────────────────── */
 #screen-leaderboard .card { max-width: 480px; gap: 0; padding: 0; overflow: hidden; }
 
 .lb-header {
@@ -185,7 +215,7 @@ input[type="text"]:focus { border-color: var(--accent); }
 
 .tomorrow { font-size: 12px; color: var(--muted); text-align: center; padding: 4px 20px 14px; }
 
-/* ── Already played banner ───────────────────────────── */
+/* ── Already played banner ───────────────────────── */
 .played-banner {
   background: rgba(124,58,237,.1);
   border: 1.5px solid rgba(124,58,237,.3);
